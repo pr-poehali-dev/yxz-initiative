@@ -19,7 +19,7 @@ const PATH_SET = new Set(PATH.map(([c, r]) => `${c},${r}`));
 
 // ─── Types ────────────────────────────────────────────────────
 type TowerType = "archer" | "mage" | "ice" | "poison";
-type EnemyType = "slime" | "goblin" | "orc" | "bat";
+type EnemyType = "slime" | "goblin" | "orc" | "bat" | "spider" | "troll" | "witch" | "knight" | "dragon" | "ghost" | "zombie";
 
 interface Tower {
   id: number; col: number; row: number; type: TowerType;
@@ -82,21 +82,60 @@ const ENEMY_DEFS: Record<EnemyType, {
   emoji: string; color: string; hp: number; speed: number;
   reward: number; size: number;
 }> = {
-  slime:  { emoji: "🟢", color: "#4ade80", hp: 60,  speed: 1.2, reward: 10, size: 14 },
-  goblin: { emoji: "👺", color: "#f97316", hp: 110, speed: 1.7, reward: 15, size: 16 },
-  orc:    { emoji: "👹", color: "#dc2626", hp: 280, speed: 0.9, reward: 30, size: 20 },
-  bat:    { emoji: "🦇", color: "#7c3aed", hp: 80,  speed: 2.3, reward: 20, size: 12 },
+  slime:  { emoji: "🟢", color: "#4ade80", hp: 60,   speed: 1.2, reward: 10, size: 14 },
+  goblin: { emoji: "👺", color: "#f97316", hp: 110,  speed: 1.7, reward: 15, size: 16 },
+  orc:    { emoji: "👹", color: "#dc2626", hp: 280,  speed: 0.9, reward: 30, size: 20 },
+  bat:    { emoji: "🦇", color: "#7c3aed", hp: 80,   speed: 2.3, reward: 20, size: 12 },
+  spider: { emoji: "🕷️", color: "#a855f7", hp: 140,  speed: 1.9, reward: 22, size: 15 },
+  zombie: { emoji: "🧟", color: "#65a30d", hp: 200,  speed: 0.7, reward: 18, size: 18 },
+  witch:  { emoji: "🧙‍♀️", color: "#e879f9", hp: 160,  speed: 1.5, reward: 28, size: 16 },
+  troll:  { emoji: "👾", color: "#0ea5e9", hp: 500,  speed: 0.65,reward: 50, size: 22 },
+  knight: { emoji: "🛡️", color: "#f1f5f9", hp: 380,  speed: 1.1, reward: 40, size: 20 },
+  ghost:  { emoji: "👻", color: "#e2e8f0", hp: 120,  speed: 2.0, reward: 25, size: 16 },
+  dragon: { emoji: "🐉", color: "#ef4444", hp: 900,  speed: 0.8, reward: 80, size: 24 },
 };
 
 const WAVE_CONFIGS: { type: EnemyType; count: number; delay: number }[][] = [
+  // 1 — туториал
   [{ type: "slime",  count: 8,  delay: 65 }],
-  [{ type: "slime",  count: 10, delay: 55 }, { type: "goblin", count: 4,  delay: 85 }],
-  [{ type: "goblin", count: 9,  delay: 58 }, { type: "slime",  count: 5,  delay: 45 }],
-  [{ type: "orc",    count: 4,  delay: 105},{ type: "goblin", count: 7,  delay: 62 }],
-  [{ type: "bat",    count: 11, delay: 45 }, { type: "goblin", count: 9,  delay: 58 }],
-  [{ type: "orc",    count: 6,  delay: 85 }, { type: "bat",    count: 13, delay: 42 }, { type: "goblin", count: 5, delay: 62 }],
-  [{ type: "orc",    count: 9,  delay: 72 }, { type: "bat",    count: 15, delay: 38 }],
-  [{ type: "orc",    count: 13, delay: 62 }, { type: "bat",    count: 12, delay: 42 }, { type: "goblin", count: 10, delay: 52 }],
+  // 2
+  [{ type: "slime",  count: 12, delay: 52 }, { type: "goblin", count: 3, delay: 88 }],
+  // 3 — пауки
+  [{ type: "goblin", count: 8,  delay: 60 }, { type: "spider", count: 5, delay: 55 }],
+  // 4 — зомби
+  [{ type: "zombie", count: 7,  delay: 70 }, { type: "slime",  count: 8, delay: 48 }],
+  // 5 — орки
+  [{ type: "orc",    count: 4,  delay: 110},{ type: "goblin",  count: 8, delay: 58 }],
+  // 6 — летучие мыши + пауки
+  [{ type: "bat",    count: 12, delay: 44 }, { type: "spider", count: 8, delay: 52 }],
+  // 7 — ведьмы
+  [{ type: "witch",  count: 6,  delay: 75 }, { type: "goblin", count: 10, delay: 55 }, { type: "zombie", count: 5, delay: 65 }],
+  // 8 — первый тролль
+  [{ type: "troll",  count: 2,  delay: 150}, { type: "bat",    count: 14, delay: 40 }, { type: "goblin", count: 8, delay: 58 }],
+  // 9 — рыцари
+  [{ type: "knight", count: 5,  delay: 90 }, { type: "spider", count: 10, delay: 48 }],
+  // 10 — привидения (быстро!)
+  [{ type: "ghost",  count: 15, delay: 38 }, { type: "orc",    count: 5,  delay: 95 }, { type: "witch", count: 4, delay: 78 }],
+  // 11 — микс
+  [{ type: "orc",    count: 7,  delay: 80 }, { type: "knight", count: 5,  delay: 88 }, { type: "bat",   count: 12, delay: 42 }],
+  // 12 — тролли и рыцари
+  [{ type: "troll",  count: 3,  delay: 130}, { type: "knight", count: 7,  delay: 85 }, { type: "zombie", count: 10, delay: 60 }],
+  // 13 — орды привидений
+  [{ type: "ghost",  count: 18, delay: 35 }, { type: "witch",  count: 8,  delay: 68 }, { type: "spider", count: 12, delay: 48 }],
+  // 14 — армия
+  [{ type: "orc",    count: 10, delay: 72 }, { type: "knight", count: 8,  delay: 82 }, { type: "troll",  count: 3, delay: 140 }],
+  // 15 — первый дракон!
+  [{ type: "dragon", count: 1,  delay: 200}, { type: "ghost",  count: 15, delay: 38 }, { type: "bat",    count: 18, delay: 36 }],
+  // 16 — хаос
+  [{ type: "witch",  count: 10, delay: 65 }, { type: "knight", count: 9,  delay: 80 }, { type: "zombie", count: 12, delay: 55 }],
+  // 17 — два дракона
+  [{ type: "dragon", count: 2,  delay: 180}, { type: "troll",  count: 4,  delay: 120}, { type: "ghost",  count: 12, delay: 40 }],
+  // 18 — финальный штурм ч.1
+  [{ type: "orc",    count: 14, delay: 62 }, { type: "knight", count: 11, delay: 75 }, { type: "bat",    count: 20, delay: 33 }, { type: "witch", count: 7, delay: 68 }],
+  // 19 — финальный штурм ч.2
+  [{ type: "troll",  count: 5,  delay: 110}, { type: "dragon", count: 2,  delay: 160}, { type: "ghost",  count: 18, delay: 36 }, { type: "spider", count: 15, delay: 44 }],
+  // 20 — АПОКАЛИПСИС
+  [{ type: "dragon", count: 3,  delay: 150}, { type: "troll",  count: 6,  delay: 100}, { type: "knight", count: 14, delay: 65 }, { type: "ghost",  count: 20, delay: 32 }, { type: "witch", count: 10, delay: 60 }],
 ];
 
 let _nextId = 1;
