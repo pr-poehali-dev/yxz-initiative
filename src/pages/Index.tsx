@@ -20,7 +20,11 @@ const PATH_SET = new Set(PATH.map(([c, r]) => `${c},${r}`));
 // ─── Types ────────────────────────────────────────────────────
 type TowerType = "archer" | "mage" | "ice" | "poison" | "cannon" | "lightning" | "sniper";
 type EnemyType = "slime" | "goblin" | "orc" | "bat" | "spider" | "troll" | "witch" | "knight" | "dragon" | "ghost" | "zombie"
-  | "wraith" | "golem" | "hydra" | "lich" | "titan";
+  | "wraith" | "golem" | "hydra" | "lich" | "titan"
+  | "crab" | "jellyfish" | "shark" | "siren" | "kraken" | "leviathan";
+
+// Bonus types
+type BonusType = "spikes" | "haste" | "airstrike";
 
 interface Tower {
   id: number; col: number; row: number; type: TowerType;
@@ -33,11 +37,18 @@ interface Enemy {
   hp: number; maxHp: number; speed: number; reward: number;
   type: EnemyType; wobble: number; frozen: number;
   poisoned: number; poisonDmg: number; blinking: number;
+  summonCooldown?: number; isSummoner?: boolean;
 }
 interface Bullet {
   id: number; x: number; y: number; tx: number; ty: number;
   speed: number; damage: number; color: string; size: number;
   special: string; enemyId: number;
+}
+interface SpikesTrap {
+  id: number; col: number; row: number; hp: number;
+}
+interface BonusDef {
+  label: string; emoji: string; desc: string; cost: number; color: string;
 }
 interface FloatText {
   id: number; x: number; y: number; text: string;
@@ -120,6 +131,19 @@ const ENEMY_DEFS: Record<EnemyType, {
   hydra:  { emoji: "🐍", color: "#16a34a", hp: 600,   speed: 1.0,  reward: 55, size: 22 },
   lich:   { emoji: "🧛", color: "#9333ea", hp: 450,   speed: 1.3,  reward: 60, size: 20 },
   titan:  { emoji: "👑", color: "#f59e0b", hp: 2500,  speed: 0.4,  reward: 150,size: 28 },
+  // ── Уровень 3 (водные) ──
+  crab:      { emoji: "🦀", color: "#f97316", hp: 350,   speed: 0.85, reward: 40, size: 18 },
+  jellyfish: { emoji: "🪼", color: "#a78bfa", hp: 200,   speed: 1.8,  reward: 30, size: 16 },
+  shark:     { emoji: "🦈", color: "#0ea5e9", hp: 700,   speed: 1.4,  reward: 65, size: 22 },
+  siren:     { emoji: "🧜", color: "#06b6d4", hp: 480,   speed: 1.6,  reward: 70, size: 20 },
+  kraken:    { emoji: "🐙", color: "#1d4ed8", hp: 1800,  speed: 0.6,  reward: 120,size: 26 },
+  leviathan: { emoji: "🐳", color: "#0c4a6e", hp: 6000,  speed: 0.35, reward: 400,size: 32 },
+};
+
+const BONUS_DEFS: Record<BonusType, BonusDef> = {
+  spikes:    { label: "Шипы",          emoji: "🔩", desc: "Разместить на дороге — наносят 120 урона",  cost: 30,  color: "#94a3b8" },
+  haste:     { label: "Ускорение",     emoji: "⚡", desc: "Башни атакуют в 2× быстрее 10 секунд",     cost: 150, color: "#fbbf24" },
+  airstrike: { label: "Бомбардировка", emoji: "💥", desc: "Все враги на поле получают 50 урона",       cost: 100, color: "#ef4444" },
 };
 
 const WAVE_CONFIGS: { type: EnemyType; count: number; delay: number }[][] = [
@@ -228,8 +252,51 @@ const WAVE_CONFIGS_2: { type: EnemyType; count: number; delay: number }[][] = [
   [{ type: "titan",  count: 6,  delay: 220}, { type: "golem",  count: 10, delay: 145}, { type: "dragon", count: 15, delay: 70 }, { type: "hydra",  count: 20, delay: 62 }, { type: "lich",   count: 30, delay: 50 }, { type: "wraith", count: 40, delay: 24 }],
 ];
 
-const ALL_WAVES = [WAVE_CONFIGS, WAVE_CONFIGS_2];
-const LEVEL_LABELS = ["Лесное королевство", "Тёмная бездна"];
+const WAVE_CONFIGS_3: { type: EnemyType; count: number; delay: number }[][] = [
+  // 1 — первые крабы
+  [{ type: "crab",      count: 8,  delay: 75 }, { type: "jellyfish", count: 10, delay: 50 }],
+  // 2 — медузы-рой
+  [{ type: "jellyfish", count: 18, delay: 42 }, { type: "crab",      count: 6,  delay: 80 }],
+  // 3 — первые акулы
+  [{ type: "shark",     count: 4,  delay: 100}, { type: "jellyfish", count: 12, delay: 46 }],
+  // 4 — крабы + сирены
+  [{ type: "siren",     count: 5,  delay: 88 }, { type: "crab",      count: 10, delay: 72 }],
+  // 5 — акулы-орда
+  [{ type: "shark",     count: 8,  delay: 90 }, { type: "jellyfish", count: 20, delay: 38 }],
+  // 6 — сирены и крабы
+  [{ type: "siren",     count: 8,  delay: 80 }, { type: "shark",     count: 5,  delay: 95 }, { type: "crab", count: 12, delay: 68 }],
+  // 7 — первый кракен!
+  [{ type: "kraken",    count: 1,  delay: 280}, { type: "jellyfish", count: 22, delay: 36 }, { type: "crab", count: 10, delay: 70 }],
+  // 8 — акулы + сирены
+  [{ type: "shark",     count: 10, delay: 85 }, { type: "siren",     count: 10, delay: 75 }],
+  // 9 — два кракена
+  [{ type: "kraken",    count: 2,  delay: 250}, { type: "shark",     count: 8,  delay: 88 }, { type: "jellyfish", count: 25, delay: 34 }],
+  // 10 — морской хаос
+  [{ type: "siren",     count: 14, delay: 70 }, { type: "crab",      count: 18, delay: 62 }, { type: "shark", count: 8, delay: 88 }],
+  // 11 — кракен + армия медуз
+  [{ type: "kraken",    count: 2,  delay: 240}, { type: "jellyfish", count: 30, delay: 32 }, { type: "siren", count: 12, delay: 68 }],
+  // 12 — три кракена
+  [{ type: "kraken",    count: 3,  delay: 220}, { type: "shark",     count: 12, delay: 80 }, { type: "crab", count: 16, delay: 65 }],
+  // 13 — шторм сирен
+  [{ type: "siren",     count: 18, delay: 65 }, { type: "shark",     count: 14, delay: 78 }, { type: "jellyfish", count: 28, delay: 30 }],
+  // 14 — морская армада
+  [{ type: "kraken",    count: 3,  delay: 210}, { type: "siren",     count: 20, delay: 60 }, { type: "crab", count: 22, delay: 58 }],
+  // 15 — кракены + легионы
+  [{ type: "kraken",    count: 4,  delay: 200}, { type: "shark",     count: 16, delay: 75 }, { type: "jellyfish", count: 35, delay: 28 }],
+  // 16 — бешеный океан
+  [{ type: "siren",     count: 22, delay: 58 }, { type: "crab",      count: 25, delay: 55 }, { type: "shark", count: 18, delay: 72 }, { type: "kraken", count: 2, delay: 200 }],
+  // 17 — пять кракенов
+  [{ type: "kraken",    count: 5,  delay: 185}, { type: "jellyfish", count: 40, delay: 26 }, { type: "siren", count: 18, delay: 58 }],
+  // 18 — предфинальный штурм
+  [{ type: "shark",     count: 20, delay: 68 }, { type: "siren",     count: 24, delay: 55 }, { type: "kraken", count: 4, delay: 190 }, { type: "crab", count: 28, delay: 52 }],
+  // 19 — армада тьмы
+  [{ type: "kraken",    count: 6,  delay: 175}, { type: "shark",     count: 22, delay: 65 }, { type: "jellyfish", count: 45, delay: 24 }, { type: "siren", count: 22, delay: 56 }],
+  // 20 — ЛЕВИАФАН (призыватель) + армия
+  [{ type: "leviathan", count: 1,  delay: 500}, { type: "kraken",    count: 4,  delay: 180}, { type: "siren", count: 20, delay: 55 }, { type: "shark", count: 20, delay: 65 }, { type: "jellyfish", count: 50, delay: 22 }],
+];
+
+const ALL_WAVES = [WAVE_CONFIGS, WAVE_CONFIGS_2, WAVE_CONFIGS_3];
+const LEVEL_LABELS = ["Лесное королевство", "Тёмная бездна", "Глубины океана"];
 
 let _nextId = 1;
 const gid = () => _nextId++;
@@ -260,6 +327,7 @@ export default function Index() {
     bullets:    [] as Bullet[],
     floats:     [] as FloatText[],
     particles:  [] as Particle[],
+    spikes:     [] as SpikesTrap[],
     gold:       150,
     lives:      20,
     wave:       0,
@@ -272,10 +340,12 @@ export default function Index() {
     levelUp:    false,
     frame:      0,
     score:      0,
+    hasteTicks: 0,
+    placingSpikes: false,
   });
 
   // React UI state (synced periodically)
-  const [ui, setUi] = useState({ gold: 150, lives: 20, wave: 0, mapLevel: 0, waveActive: false, gameOver: false, victory: false, levelUp: false, score: 0 });
+  const [ui, setUi] = useState({ gold: 150, lives: 20, wave: 0, mapLevel: 0, waveActive: false, gameOver: false, victory: false, levelUp: false, score: 0, hasteTicks: 0, placingSpikes: false });
   const [selectedType, setSelectedType] = useState<TowerType | null>(null);
   const [pickedTower, setPickedTower] = useState<Tower | null>(null);
   const selectedRef = useRef<TowerType | null>(null);
@@ -283,23 +353,26 @@ export default function Index() {
 
   const syncUi = useCallback(() => {
     const g = gs.current;
-    setUi({ gold: g.gold, lives: g.lives, wave: g.wave, mapLevel: g.mapLevel, waveActive: g.waveActive, gameOver: g.gameOver, victory: g.victory, levelUp: g.levelUp, score: g.score });
+    setUi({ gold: g.gold, lives: g.lives, wave: g.wave, mapLevel: g.mapLevel, waveActive: g.waveActive, gameOver: g.gameOver, victory: g.victory, levelUp: g.levelUp, score: g.score, hasteTicks: g.hasteTicks, placingSpikes: g.placingSpikes });
   }, []);
 
   // ── Spawn enemy ──
-  const spawnEnemy = useCallback((type: EnemyType) => {
+  const spawnEnemy = useCallback((type: EnemyType, pathIdxOverride?: number) => {
     const g = gs.current;
     const def = ENEMY_DEFS[type];
     const globalWave = g.mapLevel * 20 + g.wave;
     const mul = 1 + globalWave * 0.15 + g.mapLevel * 0.5;
-    const [sc, sr] = PATH[0];
+    const startIdx = pathIdxOverride ?? 0;
+    const [sc, sr] = PATH[startIdx];
+    const isSummoner = type === "leviathan";
     g.enemies.push({
-      id: gid(), pathIndex: 0,
+      id: gid(), pathIndex: startIdx,
       x: sc * CELL + CELL / 2, y: sr * CELL + CELL / 2,
       hp: Math.round(def.hp * mul), maxHp: Math.round(def.hp * mul),
       speed: def.speed * (1 + globalWave * 0.04),
       reward: Math.round(def.reward * (1 + g.mapLevel * 0.5)), type,
       wobble: 0, frozen: 0, poisoned: 0, poisonDmg: 0, blinking: 0,
+      isSummoner, summonCooldown: isSummoner ? 180 : undefined,
     });
   }, []);
 
@@ -319,15 +392,54 @@ export default function Index() {
     syncUi();
   }, [syncUi]);
 
-  // ── Enter level 2 ──
-  const enterLevel2 = useCallback(() => {
+  // ── Enter next level ──
+  const enterNextLevel = useCallback(() => {
     const g = gs.current;
-    g.mapLevel = 1;
+    const nextLevel = g.mapLevel + 1;
+    g.mapLevel = nextLevel;
     g.wave = 0;
     g.levelUp = false;
     g.gold += 500;
     g.lives = Math.min(g.lives + 10, 30);
-    g.floats.push({ id: gid(), x: W/2, y: H/2, text: "🌑 Добро пожаловать в Тёмную бездну!", color: "#818cf8", life: 120, vy: -0.4 });
+    g.spikes = [];
+    if (nextLevel === 1) {
+      g.floats.push({ id: gid(), x: W/2, y: H/2, text: "🌑 Добро пожаловать в Тёмную бездну!", color: "#818cf8", life: 120, vy: -0.4 });
+    } else if (nextLevel === 2) {
+      g.floats.push({ id: gid(), x: W/2, y: H/2, text: "🌊 Добро пожаловать в Глубины океана!", color: "#06b6d4", life: 120, vy: -0.4 });
+    }
+    syncUi();
+  }, [syncUi]);
+
+  // ── Bonus actions ──
+  const buyHaste = useCallback(() => {
+    const g = gs.current;
+    if (g.gold < BONUS_DEFS.haste.cost) return;
+    g.gold -= BONUS_DEFS.haste.cost;
+    g.hasteTicks = 60 * 10; // 10 seconds at 60fps
+    g.floats.push({ id: gid(), x: W/2, y: H/3, text: "⚡ Ускорение башен!", color: "#fbbf24", life: 90, vy: -0.6 });
+    syncUi();
+  }, [syncUi]);
+
+  const buyAirstrike = useCallback(() => {
+    const g = gs.current;
+    if (g.gold < BONUS_DEFS.airstrike.cost) return;
+    g.gold -= BONUS_DEFS.airstrike.cost;
+    g.enemies.forEach(e => {
+      e.hp -= 50;
+      e.blinking = 14;
+    });
+    for (let i = 0; i < 20; i++) {
+      const randEnemy = g.enemies[Math.floor(Math.random() * g.enemies.length)];
+      if (randEnemy) g.particles.push({ id: gid(), x: randEnemy.x + (Math.random()-0.5)*40, y: randEnemy.y + (Math.random()-0.5)*40, vx: (Math.random()-.5)*10, vy: (Math.random()-.5)*10, life: 40, color: "#f97316", size: 8 });
+    }
+    g.floats.push({ id: gid(), x: W/2, y: H/3, text: "💥 Бомбардировка! −50 всем!", color: "#ef4444", life: 90, vy: -0.6 });
+    syncUi();
+  }, [syncUi]);
+
+  const startPlacingSpikes = useCallback(() => {
+    const g = gs.current;
+    if (g.gold < BONUS_DEFS.spikes.cost) return;
+    g.placingSpikes = true;
     syncUi();
   }, [syncUi]);
 
@@ -381,10 +493,10 @@ export default function Index() {
   // ── Reset ──
   const reset = useCallback(() => {
     const g = gs.current;
-    g.towers = []; g.enemies = []; g.bullets = []; g.floats = []; g.particles = [];
+    g.towers = []; g.enemies = []; g.bullets = []; g.floats = []; g.particles = []; g.spikes = [];
     g.gold = 150; g.lives = 20; g.wave = 0; g.mapLevel = 0; g.waveActive = false;
     g.spawnQueue = []; g.spawnTimer = 0; g.gameOver = false; g.victory = false; g.levelUp = false;
-    g.frame = 0; g.score = 0; _nextId = 1;
+    g.frame = 0; g.score = 0; g.hasteTicks = 0; g.placingSpikes = false; _nextId = 1;
     setPickedTower(null);
     setSelectedType(null);
     syncUi();
@@ -398,11 +510,27 @@ export default function Index() {
     const col = Math.floor((e.clientX - rect.left) * sx / CELL);
     const row = Math.floor((e.clientY - rect.top) * sy / CELL);
     const g = gs.current;
+
+    // Placing spikes on path
+    if (g.placingSpikes) {
+      if (PATH_SET.has(`${col},${row}`)) {
+        const alreadyHas = g.spikes.find(s => s.col === col && s.row === row);
+        if (!alreadyHas && g.gold >= BONUS_DEFS.spikes.cost) {
+          g.gold -= BONUS_DEFS.spikes.cost;
+          g.spikes.push({ id: gid(), col, row, hp: 3 });
+          g.floats.push({ id: gid(), x: col*CELL+CELL/2, y: row*CELL, text: "🔩 Шипы!", color: "#94a3b8", life: 50, vy: -1 });
+        }
+      }
+      g.placingSpikes = false;
+      syncUi();
+      return;
+    }
+
     const existing = g.towers.find(t => t.col === col && t.row === row);
     if (existing) { setPickedTower(prev => prev?.id === existing.id ? null : existing); return; }
     setPickedTower(null);
     if (selectedRef.current) placeTower(col, row);
-  }, [placeTower]);
+  }, [placeTower, syncUi]);
 
   useEffect(() => { selectedRef.current = selectedType; }, [selectedType]);
 
@@ -421,18 +549,26 @@ export default function Index() {
           if (isPath) {
             const g = ctx.createLinearGradient(c*CELL, r*CELL, c*CELL, (r+1)*CELL);
             if (lvl === 1) { g.addColorStop(0, "#4a2060"); g.addColorStop(1, "#3a1550"); }
+            else if (lvl === 2) { g.addColorStop(0, "#0e4f6e"); g.addColorStop(1, "#083a52"); }
             else { g.addColorStop(0, "#d4a96a"); g.addColorStop(1, "#c49456"); }
             ctx.fillStyle = g;
           } else {
             if (lvl === 1) {
               ctx.fillStyle = (c + r) % 2 === 0 ? "#1e1035" : "#180c2a";
+            } else if (lvl === 2) {
+              ctx.fillStyle = (c + r) % 2 === 0 ? "#0c2d3e" : "#082030";
             } else {
               ctx.fillStyle = (c + r) % 2 === 0 ? "#4ade80" : "#3fcf72";
             }
           }
           ctx.fillRect(c*CELL, r*CELL, CELL, CELL);
           if (!isPath) {
-            ctx.fillStyle = lvl === 1 ? "rgba(100,0,150,0.12)" : "rgba(0,120,0,0.08)";
+            if (lvl === 2) {
+              // Water shimmer effect
+              ctx.fillStyle = `rgba(6,182,212,${0.04 + Math.sin(gs.current.frame*0.05 + c + r)*0.03})`;
+              ctx.fillRect(c*CELL, r*CELL, CELL, CELL);
+            }
+            ctx.fillStyle = lvl === 1 ? "rgba(100,0,150,0.12)" : lvl === 2 ? "rgba(0,100,180,0.1)" : "rgba(0,120,0,0.08)";
             ctx.fillRect(c*CELL, r*CELL+CELL-3, CELL, 3);
           }
         }
@@ -565,6 +701,36 @@ export default function Index() {
       });
     };
 
+    const drawSpikes = () => {
+      gs.current.spikes.forEach(s => {
+        const cx = s.col*CELL + CELL/2, cy = s.row*CELL + CELL/2;
+        ctx.save();
+        ctx.globalAlpha = 0.85;
+        ctx.font = "18px serif";
+        ctx.textAlign = "center"; ctx.textBaseline = "middle";
+        ctx.fillText("🔩", cx, cy);
+        // durability dots
+        for (let i = 0; i < s.hp; i++) {
+          ctx.fillStyle = "#94a3b8";
+          ctx.beginPath(); ctx.arc(cx - 8 + i*8, cy + 12, 3, 0, Math.PI*2); ctx.fill();
+        }
+        ctx.restore();
+      });
+    };
+
+    const drawHasteOverlay = () => {
+      const g = gs.current;
+      if (g.hasteTicks <= 0) return;
+      ctx.save();
+      ctx.strokeStyle = "#fbbf24";
+      ctx.lineWidth = 3;
+      ctx.globalAlpha = 0.35 + Math.sin(g.frame * 0.15) * 0.15;
+      ctx.setLineDash([8, 6]);
+      ctx.strokeRect(4, 4, W-8, H-8);
+      ctx.setLineDash([]);
+      ctx.restore();
+    };
+
     const drawFloats = () => {
       gs.current.floats.forEach(f => {
         ctx.save();
@@ -612,8 +778,25 @@ export default function Index() {
         syncUi();
       }
 
-      // Move enemies
+      // Haste timer
+      if (g.hasteTicks > 0) g.hasteTicks--;
+
+      // Move enemies + summon logic + spikes check
       g.enemies.forEach(e => {
+        // Summoner: leviathan summons minions nearby
+        if (e.isSummoner && e.summonCooldown !== undefined) {
+          e.summonCooldown--;
+          if (e.summonCooldown <= 0) {
+            e.summonCooldown = 180;
+            // Spawn 2 kraken near leviathan on the path
+            const spawnIdx = Math.max(0, e.pathIndex - 3);
+            for (let i = 0; i < 2; i++) {
+              spawnEnemy("kraken", Math.max(0, spawnIdx - i));
+            }
+            g.floats.push({ id: gid(), x: e.x, y: e.y - 40, text: "🐳 Призыв!", color: "#06b6d4", life: 70, vy: -0.8 });
+          }
+        }
+
         if (e.frozen > 0) { e.frozen--; return; }
         e.wobble++;
         if (e.blinking > 0) e.blinking--;
@@ -640,6 +823,17 @@ export default function Index() {
         const dist = Math.sqrt(dx*dx + dy*dy);
         if (dist < e.speed) { e.pathIndex++; e.x = tx; e.y = ty; }
         else { e.x += dx/dist*e.speed; e.y += dy/dist*e.speed; }
+
+        // Spikes check
+        const ec = Math.round((e.x - CELL/2) / CELL);
+        const er = Math.round((e.y - CELL/2) / CELL);
+        const spikeIdx = g.spikes.findIndex(s => s.col === ec && s.row === er);
+        if (spikeIdx !== -1) {
+          e.hp -= 120; e.blinking = 12;
+          g.floats.push({ id: gid(), x: e.x, y: e.y-20, text: "-120🔩", color: "#94a3b8", life: 42, vy: -1 });
+          g.spikes[spikeIdx].hp--;
+          if (g.spikes[spikeIdx].hp <= 0) g.spikes.splice(spikeIdx, 1);
+        }
       });
 
       // Remove dead enemies
@@ -656,7 +850,8 @@ export default function Index() {
       // Towers shoot
       g.towers.forEach(tw => {
         if (tw.shootAnim > 0) tw.shootAnim--;
-        if (tw.cooldown > 0) { tw.cooldown--; return; }
+        const hasteActive = g.hasteTicks > 0;
+        if (tw.cooldown > 0) { tw.cooldown -= hasteActive ? 2 : 1; return; }
         const def = TOWER_DEFS[tw.type];
         const range = def.range[tw.level] * CELL;
         const cx = tw.col*CELL+CELL/2, cy = tw.row*CELL+CELL/2;
@@ -748,10 +943,12 @@ export default function Index() {
       setPickedTower(pt => { pickedIdCache = pt?.id ?? null; return pt; });
       ctx.clearRect(0, 0, W, H);
       drawBg();
+      drawSpikes();
       drawTowers(pickedIdCache);
       drawEnemies();
       drawBullets();
       drawParticles();
+      drawHasteOverlay();
       drawFloats();
       animRef.current = requestAnimationFrame(loop);
     };
@@ -766,6 +963,7 @@ export default function Index() {
   const goldColor = ui.gold >= 80 ? "#fbbf24" : "#ef4444";
   const currentWaves = ALL_WAVES[ui.mapLevel];
   const levelLabel = LEVEL_LABELS[ui.mapLevel];
+  const hasteSecsLeft = Math.ceil(ui.hasteTicks / 60);
 
   return (
     <div style={{
@@ -785,8 +983,8 @@ export default function Index() {
           <span style={{ fontFamily: "Fredoka One, cursive", fontSize: 28, color: "#fbbf24", textShadow: "0 0 24px #f59e0b88" }}>
             🏰 Башня защиты
           </span>
-          <div style={{ fontSize: 11, color: ui.mapLevel === 1 ? "#818cf8" : "#4ade80", fontWeight: 700, marginTop: -2 }}>
-            {ui.mapLevel === 1 ? "🌑" : "🌲"} Уровень {ui.mapLevel + 1}: {levelLabel}
+          <div style={{ fontSize: 11, color: ui.mapLevel === 2 ? "#06b6d4" : ui.mapLevel === 1 ? "#818cf8" : "#4ade80", fontWeight: 700, marginTop: -2 }}>
+            {ui.mapLevel === 2 ? "🌊" : ui.mapLevel === 1 ? "🌑" : "🌲"} Уровень {ui.mapLevel + 1}: {levelLabel}
           </div>
         </div>
         <div style={{ display: "flex", gap: 12 }}>
@@ -811,36 +1009,47 @@ export default function Index() {
             }}
           />
           {/* Level-up overlay */}
-          {ui.levelUp && !ui.gameOver && !ui.victory && (
-            <div style={{
-              position: "absolute", inset: 0, borderRadius: 16, display: "flex",
-              flexDirection: "column", alignItems: "center", justifyContent: "center",
-              background: "rgba(10,5,40,0.93)",
-              backdropFilter: "blur(8px)",
-            }}>
-              <div style={{ fontSize: 90, marginBottom: 8 }}>🌑</div>
-              <div style={{ fontFamily: "Fredoka One, cursive", fontSize: 38, color: "#818cf8", textShadow: "0 0 30px #818cf8" }}>
-                Уровень 1 пройден!
+          {ui.levelUp && !ui.gameOver && !ui.victory && (() => {
+            const isToLevel2 = ui.mapLevel === 0;
+            const isToLevel3 = ui.mapLevel === 1;
+            const nextEmoji = isToLevel2 ? "🌑" : "🌊";
+            const nextName = isToLevel2 ? "Тёмную бездну" : "Глубины океана";
+            const overlayColor = isToLevel2 ? "#818cf8" : "#06b6d4";
+            const btnGradient = isToLevel2 ? "linear-gradient(135deg, #7c3aed, #4f46e5)" : "linear-gradient(135deg, #0891b2, #0e7490)";
+            const btnShadow = isToLevel2 ? "0 4px 28px rgba(124,58,237,0.65)" : "0 4px 28px rgba(6,182,212,0.65)";
+            const wavesCount = isToLevel3 ? "20" : "30";
+            const nextDesc = isToLevel2 ? "Тебя ждут 30 волн тьмы с новыми монстрами." : "Тебя ждут 20 волн морских ужасов.\nФинальный босс — Левиафан-призыватель!";
+            return (
+              <div style={{
+                position: "absolute", inset: 0, borderRadius: 16, display: "flex",
+                flexDirection: "column", alignItems: "center", justifyContent: "center",
+                background: "rgba(10,5,40,0.93)",
+                backdropFilter: "blur(8px)",
+              }}>
+                <div style={{ fontSize: 90, marginBottom: 8 }}>{nextEmoji}</div>
+                <div style={{ fontFamily: "Fredoka One, cursive", fontSize: 38, color: overlayColor, textShadow: `0 0 30px ${overlayColor}` }}>
+                  Уровень {ui.mapLevel + 1} пройден!
+                </div>
+                <div style={{ color: "rgba(255,255,255,0.7)", fontSize: 16, marginTop: 8, textAlign: "center", maxWidth: 360, lineHeight: 1.6 }}>
+                  Твои башни сохранены.<br/>{nextDesc}<br/>
+                  <span style={{ color: "#fbbf24" }}>+500💰 и +10❤️ в подарок! ({wavesCount} волн)</span>
+                </div>
+                <button onClick={enterNextLevel} style={{
+                  marginTop: 28, padding: "13px 44px",
+                  fontFamily: "Fredoka One, cursive", fontSize: 22, color: "#fff",
+                  background: btnGradient,
+                  border: "none", borderRadius: 50, cursor: "pointer",
+                  boxShadow: btnShadow,
+                  transition: "transform 0.15s",
+                }}
+                  onMouseEnter={e => (e.currentTarget.style.transform = "scale(1.07)")}
+                  onMouseLeave={e => (e.currentTarget.style.transform = "scale(1)")}
+                >
+                  В {nextName}! {nextEmoji}
+                </button>
               </div>
-              <div style={{ color: "rgba(255,255,255,0.7)", fontSize: 16, marginTop: 8, textAlign: "center", maxWidth: 340 }}>
-                Твои башни сохранены.<br/>Тебя ждут 30 волн тьмы с новыми монстрами.<br/>
-                <span style={{ color: "#fbbf24" }}>+500💰 и +10❤️ в подарок!</span>
-              </div>
-              <button onClick={enterLevel2} style={{
-                marginTop: 28, padding: "13px 44px",
-                fontFamily: "Fredoka One, cursive", fontSize: 22, color: "#fff",
-                background: "linear-gradient(135deg, #7c3aed, #4f46e5)",
-                border: "none", borderRadius: 50, cursor: "pointer",
-                boxShadow: "0 4px 28px rgba(124,58,237,0.65)",
-                transition: "transform 0.15s",
-              }}
-                onMouseEnter={e => (e.currentTarget.style.transform = "scale(1.07)")}
-                onMouseLeave={e => (e.currentTarget.style.transform = "scale(1)")}
-              >
-                В Тёмную бездну! 🌑
-              </button>
-            </div>
-          )}
+            );
+          })()}
           {/* Game over / Victory overlay */}
           {(ui.gameOver || ui.victory) && (
             <div style={{
@@ -854,8 +1063,8 @@ export default function Index() {
                 {ui.victory ? "Победа!" : "Поражение!"}
               </div>
               {ui.victory && (
-                <div style={{ color: "#818cf8", fontSize: 16, marginTop: 4 }}>
-                  Оба уровня пройдены — ты легенда! 👑
+                <div style={{ color: "#06b6d4", fontSize: 16, marginTop: 4 }}>
+                  Все 3 уровня пройдены — ты легенда океана! 👑🌊
                 </div>
               )}
               <div style={{ color: "rgba(255,255,255,0.65)", fontSize: 18, marginTop: 6 }}>
@@ -890,12 +1099,14 @@ export default function Index() {
               color: ui.waveActive ? "rgba(255,255,255,0.35)" : "#1a0a2e",
               background: ui.waveActive
                 ? "rgba(255,255,255,0.08)"
-                : ui.mapLevel === 1
-                  ? "linear-gradient(135deg, #7c3aed, #6d28d9)"
-                  : "linear-gradient(135deg, #fbbf24, #f97316)",
+                : ui.mapLevel === 2
+                  ? "linear-gradient(135deg, #0891b2, #0e7490)"
+                  : ui.mapLevel === 1
+                    ? "linear-gradient(135deg, #7c3aed, #6d28d9)"
+                    : "linear-gradient(135deg, #fbbf24, #f97316)",
               border: ui.waveActive ? "2px solid rgba(255,255,255,0.15)" : "none",
               borderRadius: 14, cursor: ui.waveActive ? "not-allowed" : "pointer",
-              boxShadow: ui.waveActive ? "none" : ui.mapLevel === 1 ? "0 4px 22px rgba(124,58,237,0.55)" : "0 4px 22px rgba(249,115,22,0.55)",
+              boxShadow: ui.waveActive ? "none" : ui.mapLevel === 2 ? "0 4px 22px rgba(8,145,178,0.55)" : ui.mapLevel === 1 ? "0 4px 22px rgba(124,58,237,0.55)" : "0 4px 22px rgba(249,115,22,0.55)",
               transition: "all 0.2s",
             }}
           >
@@ -959,18 +1170,55 @@ export default function Index() {
               color: "rgba(255,255,255,0.4)", fontSize: 12, lineHeight: 1.7,
             }}>
               <div style={{ fontWeight: 800, color: "rgba(255,255,255,0.6)", marginBottom: 6 }}>💡 Как играть</div>
-              <div>• Выбери башню → кликни на зелёную клетку</div>
+              <div>• Выбери башню → кликни на свободную клетку</div>
               <div>• Кликни на башню → улучши до 4★ или продай</div>
               <div>• ❄️ замораживает, ☠️ отравляет, 🧙 бьёт по площади</div>
-              <div>• 💣 мощный взрыв 2×, ⚡ цепная молния, 🎯 снайпер</div>
-              <div>• 20 волн → уровень 2 с новыми монстрами!</div>
+              <div>• Уровень 3: 🐳 Левиафан призывает союзников!</div>
+              <div>• Используй бонусы внизу в нужный момент 👇</div>
             </div>
           )}
         </div>
       </div>
 
+      {/* Bonus panel */}
+      <div style={{
+        width: "100%", maxWidth: 1200,
+        padding: "10px 16px 4px",
+        display: "flex", flexDirection: "column", gap: 6,
+      }}>
+        <div style={{ color: "rgba(255,255,255,0.4)", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1 }}>
+          ⚡ Бонусы
+        </div>
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+          {/* Spikes */}
+          <BonusButton
+            bonus={BONUS_DEFS.spikes}
+            canAfford={ui.gold >= BONUS_DEFS.spikes.cost}
+            active={ui.placingSpikes}
+            onClick={startPlacingSpikes}
+            extra={ui.placingSpikes ? "Кликни на дорогу!" : undefined}
+          />
+          {/* Haste */}
+          <BonusButton
+            bonus={BONUS_DEFS.haste}
+            canAfford={ui.gold >= BONUS_DEFS.haste.cost}
+            active={ui.hasteTicks > 0}
+            onClick={buyHaste}
+            extra={ui.hasteTicks > 0 ? `${hasteSecsLeft}с` : undefined}
+          />
+          {/* Airstrike */}
+          <BonusButton
+            bonus={BONUS_DEFS.airstrike}
+            canAfford={ui.gold >= BONUS_DEFS.airstrike.cost && ui.waveActive}
+            active={false}
+            onClick={buyAirstrike}
+            extra={!ui.waveActive ? "Во время волны" : undefined}
+          />
+        </div>
+      </div>
+
       <div style={{ color: "rgba(255,255,255,0.18)", fontSize: 11, paddingBottom: 12 }}>
-        Башня защиты — 2 уровня · 50 волн · 16 типов врагов · 7 башен до 4 звёзд
+        Башня защиты — 3 уровня · 70 волн · 22 типа врагов · 7 башен до 4 звёзд
       </div>
     </div>
   );
@@ -1039,5 +1287,41 @@ function InfoBox({ label, value }: { label: string; value: string|number }) {
       <div style={{ color: "rgba(255,255,255,0.4)", fontSize: 10 }}>{label}</div>
       <div style={{ color: "#fff", fontWeight: 700, fontSize: 14 }}>{value}</div>
     </div>
+  );
+}
+
+function BonusButton({ bonus, canAfford, active, onClick, extra }: {
+  bonus: BonusDef; canAfford: boolean; active: boolean; onClick: () => void; extra?: string;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={!canAfford && !active}
+      title={bonus.desc}
+      style={{
+        display: "flex", alignItems: "center", gap: 8,
+        padding: "8px 16px",
+        background: active
+          ? `${bonus.color}33`
+          : canAfford ? "rgba(255,255,255,0.07)" : "rgba(255,255,255,0.03)",
+        border: `2px solid ${active ? bonus.color : canAfford ? bonus.color + "55" : "rgba(255,255,255,0.1)"}`,
+        borderRadius: 12, cursor: canAfford || active ? "pointer" : "not-allowed",
+        transition: "all 0.15s",
+        opacity: canAfford || active ? 1 : 0.45,
+        minWidth: 140,
+      }}
+      onMouseEnter={e => { if (canAfford || active) e.currentTarget.style.transform = "scale(1.04)"; }}
+      onMouseLeave={e => { e.currentTarget.style.transform = "scale(1)"; }}
+    >
+      <span style={{ fontSize: 22 }}>{bonus.emoji}</span>
+      <div style={{ textAlign: "left" }}>
+        <div style={{ color: active ? bonus.color : "#fff", fontWeight: 800, fontSize: 13 }}>
+          {bonus.label} {extra && <span style={{ color: bonus.color, fontWeight: 900 }}>({extra})</span>}
+        </div>
+        <div style={{ color: active ? bonus.color : "#fbbf24", fontSize: 11, fontWeight: 700 }}>
+          {active && !extra ? "Активно!" : `${bonus.cost}💰`}
+        </div>
+      </div>
+    </button>
   );
 }
